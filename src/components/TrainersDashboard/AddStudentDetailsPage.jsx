@@ -1,176 +1,210 @@
-import React, { useState } from "react";
-import { db, auth } from "../../firebase";
-import { createUserWithEmailAndPassword } from "firebase/auth";
+import React, { useEffect, useState } from "react";
+import { auth, db } from "../../firebase";
 import {
-  doc,
-  setDoc,
-  updateDoc,
-  arrayUnion,
+  collection,
+  getDocs,
+  query,
+  where,
+  addDoc,
   serverTimestamp,
 } from "firebase/firestore";
+import { onAuthStateChanged } from "firebase/auth";
 
-const AddStudentDetailsPage = () => {
-  const [loading, setLoading] = useState(false);
+export default function TrainerAttendance() {
+  const [trainerId, setTrainerId] = useState("");
+  const [instituteId, setInstituteId] = useState("");
+  const [timetable, setTimetable] = useState([]);
+  const [students, setStudents] = useState([]);
+  const [selectedSlot, setSelectedSlot] = useState(null);
+  const [attendance, setAttendance] = useState({});
 
-  const [form, setForm] = useState({
-    firstName: "",
-    lastName: "",
-    category: "",
-    joinedDate: "",
-    email: "",
-    phoneNumber: "",
-    feeAmount: "",
-  });
+  const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  const times = [
+    "09:00",
+    "10:00",
+    "11:00",
+    "12:00",
+    "13:00",
+    "14:00",
+    "15:00",
+    "16:00",
+    "17:00",
+  ];
 
-  const handleChange = (e) => {
-    setForm({ ...form, [e.target.name]: e.target.value });
-  };
+  /* ---------------- AUTH ---------------- */
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, async (user) => {
+      if (!user) return;
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+      setTrainerId(user.uid);
 
-    const trainer = auth.currentUser;
-    if (!trainer) {
-      alert("Trainer not logged in");
-      return;
-    }
-
-    try {
-      setLoading(true);
-
-      const studentCredential = await createUserWithEmailAndPassword(
-        auth,
-        form.email,
-        "123456"
+      const trainerSnap = await getDocs(
+        query(collection(db, "InstituteTrainers"), where("uid", "==", user.uid))
       );
 
-      const studentUID = studentCredential.user.uid;
+      if (!trainerSnap.empty) {
+        setInstituteId(trainerSnap.docs[0].data().instituteId);
+      }
+    });
 
-      await setDoc(doc(db, "trainerstudents", studentUID), {
-        firstName: form.firstName,
-        lastName: form.lastName,
-        category: form.category,
-        joinedDate: form.joinedDate,
-        email: form.email,
-        phoneNumber: form.phoneNumber,
-        feeAmount: Number(form.feeAmount),
-        trainerUID: trainer.uid,
-        studentUID: studentUID,
-        role: "student",
-        createdAt: serverTimestamp(),
-      });
+    return () => unsub();
+  }, []);
 
-      await updateDoc(doc(db, "trainers", trainer.uid), {
-        students: arrayUnion(studentUID),
-      });
+  /* ---------------- FETCH TIMETABLE ---------------- */
+  useEffect(() => {
+    if (!instituteId || !trainerId) return;
 
-      alert("Student added successfully 🎉");
+    const load = async () => {
+      const snap = await getDocs(
+        query(
+          collection(db, "institutes", instituteId, "timetable"),
+          where("trainerId", "==", trainerId)
+        )
+      );
 
-      setForm({
-        firstName: "",
-        lastName: "",
-        category: "",
-        joinedDate: "",
-        email: "",
-        phoneNumber: "",
-        feeAmount: "",
-      });
-    } catch (error) {
-      console.error(error);
-      alert(error.message);
-    } finally {
-      setLoading(false);
-    }
+      setTimetable(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+    };
+
+    load();
+  }, [instituteId, trainerId]);
+
+  /* ---------------- FETCH STUDENTS ---------------- */
+  const loadStudents = async (studentIds) => {
+    const snap = await getDocs(collection(db, "students"));
+    const filtered = snap.docs
+      .map((d) => ({ id: d.id, ...d.data() }))
+      .filter((s) => studentIds.includes(s.id));
+
+    setStudents(filtered);
   };
 
+  /* ---------------- SAVE ATTENDANCE ---------------- */
+  const saveAttendance = async () => {
+    if (!selectedSlot) return;
+
+    const date = new Date().toISOString().split("T")[0];
+
+    await addDoc(collection(db, "institutes", instituteId, "attendance"), {
+      date,
+      day: selectedSlot.day,
+      time: selectedSlot.time,
+      trainerId,
+      category: selectedSlot.category,
+      students: attendance,
+      createdAt: serverTimestamp(),
+    });
+
+    alert("Attendance saved successfully!");
+    setSelectedSlot(null);
+    setAttendance({});
+  };
+
+  const getSlot = (day, time) =>
+    timetable.find((t) => t.day === day && t.time === time);
+
+  /* ================= UI ================= */
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[#4b301b] dark:bg-gray-900 px-4">
-      <div className="w-full max-w-4xl bg-white dark:bg-gray-800 rounded-2xl shadow-xl px-6 sm:px-10 py-8 sm:py-10 transition-colors">
-        <h1 className="text-2xl sm:text-3xl font-extrabold mb-8 text-gray-900 dark:text-white text-center sm:text-left">
-          Add Student Details
-        </h1>
+    <div className="bg-white dark:bg-gray-900 min-h-screen p-6">
+      <h2 className="text-2xl font-bold mb-6">Class Attendance</h2>
 
-        <form className="space-y-6" onSubmit={handleSubmit}>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-            <input
-              name="firstName"
-              placeholder="First Name"
-              value={form.firstName}
-              onChange={handleChange}
-              required
-              className="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-4 py-3 text-gray-900 dark:text-white focus:ring-2 focus:ring-orange-400 outline-none"
-            />
-            <input
-              name="lastName"
-              placeholder="Last Name"
-              value={form.lastName}
-              onChange={handleChange}
-              required
-              className="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-4 py-3 text-gray-900 dark:text-white focus:ring-2 focus:ring-orange-400 outline-none"
-            />
+      {/* TIMETABLE GRID */}
+      <div
+        className="grid"
+        style={{ gridTemplateColumns: "100px repeat(7, 1fr)" }}
+      >
+        <div />
+        {days.map((d) => (
+          <div
+            key={d}
+            className="bg-gray-200 dark:bg-gray-700 text-center py-2 font-semibold"
+          >
+            {d}
           </div>
+        ))}
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-            <input
-              name="category"
-              placeholder="Category"
-              value={form.category}
-              onChange={handleChange}
-              className="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-4 py-3 text-gray-900 dark:text-white focus:ring-2 focus:ring-orange-400 outline-none"
-            />
-            <input
-              type="date"
-              name="joinedDate"
-              value={form.joinedDate}
-              onChange={handleChange}
-              className="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-4 py-3 text-gray-900 dark:text-white focus:ring-2 focus:ring-orange-400 outline-none"
-            />
-          </div>
+        {times.map((time) => (
+          <React.Fragment key={time}>
+            <div className="bg-gray-100 dark:bg-gray-800 p-2 font-semibold">
+              {time}
+            </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-            <input
-              type="email"
-              name="email"
-              placeholder="E-mail"
-              value={form.email}
-              onChange={handleChange}
-              required
-              className="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-4 py-3 text-gray-900 dark:text-white focus:ring-2 focus:ring-orange-400 outline-none"
-            />
-            <input
-              name="phoneNumber"
-              placeholder="Phone Number"
-              value={form.phoneNumber}
-              onChange={handleChange}
-              className="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-4 py-3 text-gray-900 dark:text-white focus:ring-2 focus:ring-orange-400 outline-none"
-            />
-          </div>
-
-          <div>
-            <input
-              type="number"
-              name="feeAmount"
-              placeholder="Fee Amount"
-              value={form.feeAmount}
-              onChange={handleChange}
-              required
-              className="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-4 py-3 text-gray-900 dark:text-white focus:ring-2 focus:ring-orange-400 outline-none"
-            />
-          </div>
-
-          <div className="flex justify-center pt-6">
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full sm:w-auto bg-orange-500 hover:bg-orange-600 text-white px-16 py-3 rounded-md font-extrabold transition disabled:opacity-60"
-            >
-              {loading ? "Saving..." : "Save"}
-            </button>
-          </div>
-        </form>
+            {days.map((day) => {
+              const slot = getSlot(day, time);
+              return (
+                <div
+                  key={day + time}
+                  className="border p-2 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700"
+                  onClick={() => {
+                    if (!slot) return;
+                    setSelectedSlot(slot);
+                    loadStudents(slot.students);
+                  }}
+                >
+                  {slot ? (
+                    <>
+                      <p className="font-semibold text-blue-600">
+                        {slot.category}
+                      </p>
+                      <p className="text-sm text-gray-500">
+                        {slot.students.length} Students
+                      </p>
+                    </>
+                  ) : (
+                    <span className="text-gray-400 text-sm">—</span>
+                  )}
+                </div>
+              );
+            })}
+          </React.Fragment>
+        ))}
       </div>
+
+      {/* ATTENDANCE MODAL */}
+      {selectedSlot && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center">
+          <div className="bg-white dark:bg-gray-800 p-6 rounded w-[400px]">
+            <h3 className="font-bold text-lg mb-3">
+              Attendance - {selectedSlot.category}
+            </h3>
+
+            <div className="space-y-2 max-h-64 overflow-y-auto">
+              {students.map((s) => (
+                <label
+                  key={s.id}
+                  className="flex justify-between items-center border p-2 rounded"
+                >
+                  <span>{s.firstName}</span>
+                  <input
+                    type="checkbox"
+                    checked={attendance[s.id] || false}
+                    onChange={(e) =>
+                      setAttendance((prev) => ({
+                        ...prev,
+                        [s.id]: e.target.checked,
+                      }))
+                    }
+                  />
+                </label>
+              ))}
+            </div>
+
+            <div className="flex gap-3 mt-4">
+              <button
+                className="bg-green-600 text-white px-4 py-2 rounded w-full"
+                onClick={saveAttendance}
+              >
+                Save Attendance
+              </button>
+              <button
+                className="border px-4 py-2 rounded w-full"
+                onClick={() => setSelectedSlot(null)}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
-};
-
-export default AddStudentDetailsPage;
+}

@@ -24,7 +24,7 @@ const TrainersAttendancePage = () => {
 
   /* 🔒 Load institute trainers */
   useEffect(() => {
-    if (!user || institute?.role !== "institute") return;
+    if (!user || !institute?.role || institute.role !== "institute") return;
 
     const q = query(
       collection(db, "InstituteTrainers"),
@@ -38,11 +38,10 @@ const TrainersAttendancePage = () => {
 
   /* 📅 Load attendance for selected date */
   useEffect(() => {
-    if (!user) return;
+    if (!user || !institute?.id) return;
 
     const q = query(
-      collection(db, "trainerAttendance"),
-      where("instituteId", "==", user.uid),
+      collection(db, "institutes", user.uid, "trainerAttendance"),
       where("date", "==", selectedDate)
     );
 
@@ -53,7 +52,7 @@ const TrainersAttendancePage = () => {
       });
       setAttendance(map);
     });
-  }, [user, selectedDate]);
+  }, [user, selectedDate, institute]);
 
   /* 🔍 Search */
   const filteredRows = useMemo(() => {
@@ -75,8 +74,15 @@ const TrainersAttendancePage = () => {
   const markAttendance = async (trainer, value) => {
     if (!canEditDate(trainer.joinedDate)) return;
 
+    // 🔹 Updated path: save under institute
     await setDoc(
-      doc(db, "trainerAttendance", `${trainer.uid}_${selectedDate}`),
+      doc(
+        db,
+        "institutes",
+        user.uid,
+        "trainerAttendance",
+        `${trainer.uid}_${selectedDate}`
+      ),
       {
         trainerId: trainer.uid,
         instituteId: user.uid,
@@ -131,7 +137,6 @@ const TrainersAttendancePage = () => {
           {filteredRows.map((trainer) => {
             const isPresent = attendance[trainer.uid] === true;
             const isAbsent = attendance[trainer.uid] === false;
-            const disabled = !canEditDate(trainer.joinedDate);
 
             return (
               <div
@@ -161,7 +166,7 @@ const TrainersAttendancePage = () => {
                     }}
                     className={
                       "px-3 py-1 rounded-full text-xs font-semibold cursor-pointer " +
-                      (attendance[trainer.uid] === true
+                      (isPresent
                         ? "bg-green-500 text-white"
                         : "bg-gray-200 text-gray-700")
                     }
@@ -187,7 +192,7 @@ const TrainersAttendancePage = () => {
                     }}
                     className={
                       "px-3 py-1 rounded-full text-xs font-semibold cursor-pointer " +
-                      (attendance[trainer.uid] === false
+                      (isAbsent
                         ? "bg-red-500 text-white"
                         : "bg-gray-200 text-gray-700")
                     }

@@ -12,9 +12,9 @@ import StudentsAttendancePage from "./StudentsAttendancePage";
 import TrainersAttendancePage from "./TrainersAttendancePage";
 import FeesDetailsPage from "./FeesDetailsPage";
 import SalaryDetailsPage from "./SalaryDetailsPage";
-import AddTrainerDetailsPage from "./AddTrainerDetailsPage";
-import AddStudentDetailsPage from "./AddStudentDetailsPage";
-import PaymentsPage from "./PaymentsPage";
+import TakeAttendance from "./TakeAttendance";
+//import Timetable from "./Timetable";
+import Myattendance from "./Myattendance";
 import Editprofile from "./Editprofile";
 
 const sidebarItems = [
@@ -24,14 +24,14 @@ const sidebarItems = [
   //"Trainer’s Attendance",
   "Fees Details",
   //"Salary Details",
-  //"Add Trainer Details",
-  //"Add Student Details",
+  "Take Attendance",
+  //"Time table",
   //"Inbox",
   //"Shop",
 
   //"Categories",
   //"Reports",
-  //"Payment Details",
+  "My Attendance",
   //"Terms & Conditions",
   //"Privacy Policy",
   "Log Out",
@@ -151,12 +151,12 @@ const InstituteDashboard = () => {
         return <FeesDetailsPage />;
       //case "Salary Details":
       //return <SalaryDetailsPage />;
-      //case "Add Trainer Details":
-      //return <AddTrainerDetailsPage />;
-      //case "Add Student Details":
-      //return <AddStudentDetailsPage />;
-      //case "Payment Details":
-      //return <PaymentsPage />;
+      case "Take Attendance":
+        return <TakeAttendance />;
+      //case "Time table":
+      //return <Timetable />;
+      case "My Attendance":
+        return <Myattendance />;
       default:
         return (
           <div className="text-white">

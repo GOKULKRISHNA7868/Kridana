@@ -16,6 +16,7 @@ import AddTrainerDetailsPage from "./AddTrainerDetailsPage";
 import AddStudentDetailsPage from "./AddStudentDetailsPage";
 import PaymentsPage from "./PaymentsPage";
 import Editprofile from "./Editprofile";
+import Timetable from "./Timetable";
 
 const sidebarItems = [
   "Home",
@@ -28,7 +29,7 @@ const sidebarItems = [
   "Add Student Details",
   "Inbox",
   "Shop",
-
+  "Time table",
   "Categories",
   "Reports",
   "Payment Details",
@@ -71,7 +72,7 @@ const InstituteDashboard = () => {
   const handleLogout = async () => {
     try {
       await signOut(auth);
-      navigate("/login", { replace: true });
+      navigate("/", { replace: true });
     } catch (err) {
       console.error("Logout error:", err);
     }
@@ -143,6 +144,8 @@ const InstituteDashboard = () => {
         );
       case "Edit Profile":
         return <Editprofile />;
+      case "Time table":
+        return <Timetable />;
       case "Students Attendance":
         return <StudentsAttendancePage />;
       case "Trainer’s Attendance":
