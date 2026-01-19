@@ -1,67 +1,78 @@
 // src/components/InstituteDashboard/InstituteDashboard.jsx
-import React, { useState, useEffect, useRef, useMemo } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { signOut } from "firebase/auth";
 import { auth, db } from "../../firebase";
 import { useAuth } from "../../context/AuthContext";
 import { useNavigate } from "react-router-dom";
 
-import { collection, query, where, onSnapshot } from "firebase/firestore";
-
+import {
+  collection,
+  query,
+  where,
+  onSnapshot,
+  doc,
+  getDoc,
+} from "firebase/firestore";
+import CheckinCheckout from "./CheckinCheckout";
 import InstituteDataPage from "./InstituteDataPage";
-import StudentsAttendancePage from "./StudentsAttendancePage";
-import TrainersAttendancePage from "./TrainersAttendancePage";
+import Studenttimetables from "./Student timetables";
+import TrainersTimetables from "./TrainersTimetables";
 import FeesDetailsPage from "./FeesDetailsPage";
-import SalaryDetailsPage from "./SalaryDetailsPage";
 import TakeAttendance from "./TakeAttendance";
-//import Timetable from "./Timetable";
 import Myattendance from "./Myattendance";
-import Editprofile from "./Editprofile";
+import TrainerStudentAttendance from "./TrainerStudentAttendance";
+import TrainerStudentsFee from "./TrainerStudentsFee";
 
-const sidebarItems = [
+const studentSidebarItems = [
   "Home",
-  //"Edit Profile",
-  //"Students Attendance",
-  //"Trainer’s Attendance",
-  "Fees Details",
-  //"Salary Details",
-  "Take Attendance",
-  //"Time table",
-  //"Inbox",
-  //"Shop",
-
-  //"Categories",
-  //"Reports",
+  "Student Timetables",
   "My Attendance",
-  //"Terms & Conditions",
-  //"Privacy Policy",
+  "Fees Details",
+  "Log Out",
+];
+
+const trainerSidebarItems = [
+  "CheckinCheckout",
+  "Trainer’s Timetables",
+  "My Attendance",
+  "Take Attendance",
+  "Log Out",
+];
+const trainerStudentSidebarItems = [
+  "TrainerStudentAttendance",
+  "TrainerStudentsFee",
   "Log Out",
 ];
 
 const InstituteDashboard = () => {
   const [activeMenu, setActiveMenu] = useState("Home");
-  const { institute, user } = useAuth();
-  const idleTimer = useRef(null);
+  const { user } = useAuth();
   const navigate = useNavigate();
+  const idleTimer = useRef(null);
 
+  const [role, setRole] = useState(null);
   const [students, setStudents] = useState([]);
   const [trainers, setTrainers] = useState([]);
 
   /* =============================
-     ⏱ AUTO LOGOUT (5 MIN IDLE)
+     ⏱ AUTO LOGOUT (5 MIN)
   ============================= */
   useEffect(() => {
     const resetTimer = () => {
       if (idleTimer.current) clearTimeout(idleTimer.current);
-      idleTimer.current = setTimeout(() => handleLogout(), 5 * 60 * 1000);
+      idleTimer.current = setTimeout(handleLogout, 5 * 60 * 1000);
     };
 
-    const events = ["mousemove", "keydown", "click", "scroll"];
-    events.forEach((e) => window.addEventListener(e, resetTimer));
+    ["mousemove", "keydown", "click", "scroll"].forEach((e) =>
+      window.addEventListener(e, resetTimer)
+    );
     resetTimer();
 
     return () => {
+      ["mousemove", "keydown", "click", "scroll"].forEach((e) =>
+        window.removeEventListener(e, resetTimer)
+      );
       if (idleTimer.current) clearTimeout(idleTimer.current);
-      events.forEach((e) => window.removeEventListener(e, resetTimer));
     };
   }, []);
 
@@ -69,50 +80,81 @@ const InstituteDashboard = () => {
      🚪 LOGOUT
   ============================= */
   const handleLogout = async () => {
-    try {
-      await signOut(auth);
-      navigate("/", { replace: true });
-    } catch (err) {
-      console.error("Logout error:", err);
-    }
+    await signOut(auth);
+    navigate("/", { replace: true });
   };
 
   /* =============================
-     📂 FETCH STUDENTS AND TRAINERS FROM FIREBASE
+     🔑 DETECT ROLE (FIXED)
+  ============================= */
+  /* =============================
+   🔑 DETECT ROLE (EXTENDED)
+============================= */
+  useEffect(() => {
+    if (!user?.uid) return;
+
+    const detectRole = async () => {
+      // student
+      const studentSnap = await getDoc(doc(db, "students", user.uid));
+      if (studentSnap.exists()) {
+        setRole("student");
+        return;
+      }
+
+      // trainer
+      const trainerSnap = await getDoc(doc(db, "InstituteTrainers", user.uid));
+      if (trainerSnap.exists()) {
+        setRole("trainer");
+        return;
+      }
+
+      // ✅ trainer-student
+      const trainerStudentSnap = await getDoc(
+        doc(db, "trainerstudents", user.uid)
+      );
+      if (trainerStudentSnap.exists()) {
+        setRole("trainerstudent");
+        return;
+      }
+
+      setRole(null);
+    };
+
+    detectRole();
+  }, [user]);
+
+  /* =============================
+     📂 FETCH DATA (UNCHANGED)
   ============================= */
   useEffect(() => {
     if (!user?.uid) return;
 
-    // Students
     const studentsQuery = query(
       collection(db, "students"),
       where("instituteId", "==", user.uid)
     );
+
     const unsubStudents = onSnapshot(studentsQuery, (snap) => {
-      const data = snap.docs.map((doc) => ({
-        uid: doc.id,
-        firstName: doc.data().firstName || "",
-        lastName: doc.data().lastName || "",
-        phone: doc.data().phone || "",
-        batch: doc.data().batch || doc.data().category || "",
-      }));
-      setStudents(data);
+      setStudents(
+        snap.docs.map((doc) => ({
+          uid: doc.id,
+          ...doc.data(),
+        }))
+      );
     });
 
-    // Trainers
     const trainersQuery = query(
       collection(db, "InstituteTrainers"),
       where("instituteId", "==", user.uid)
     );
+
     const unsubTrainers = onSnapshot(trainersQuery, (snap) => {
-      const data = snap.docs.map((doc) => ({
-        trainerUid: doc.id,
-        firstName: doc.data().firstName || "",
-        lastName: doc.data().lastName || "",
-        category: doc.data().category || "",
-        phone: doc.data().phone || "",
-      }));
-      setTrainers(data);
+      setTrainers(
+        snap.docs.map((doc) => ({
+          trainerUid: doc.id,
+          ...doc.data(),
+        }))
+      );
     });
 
     return () => {
@@ -122,80 +164,58 @@ const InstituteDashboard = () => {
   }, [user]);
 
   /* =============================
-     📂 RENDER MAIN CONTENT
+     📂 MAIN CONTENT
   ============================= */
   const renderMainContent = () => {
     switch (activeMenu) {
       case "Home":
-        return (
-          <InstituteDataPage
-            students={students}
-            trainers={trainers}
-            onDeleteStudent={(uid) =>
-              setStudents((prev) => prev.filter((s) => s.uid !== uid))
-            }
-            onDeleteTrainer={(trainerUid) =>
-              setTrainers((prev) =>
-                prev.filter((t) => t.trainerUid !== trainerUid)
-              )
-            }
-          />
-        );
-      //case "Edit Profile":
-      //return <Editprofile />;
-      //case "Students Attendance":
-      //return <StudentsAttendancePage />;
-      //case "Trainer’s Attendance":
-      //return <TrainersAttendancePage />;
+        return <InstituteDataPage students={students} trainers={trainers} />;
+      case "Student Timetables":
+        return <Studenttimetables />;
+      case "Trainer’s Timetables":
+        return <TrainersTimetables />;
       case "Fees Details":
         return <FeesDetailsPage />;
-      //case "Salary Details":
-      //return <SalaryDetailsPage />;
       case "Take Attendance":
         return <TakeAttendance />;
-      //case "Time table":
-      //return <Timetable />;
       case "My Attendance":
         return <Myattendance />;
+      case "TrainerStudentAttendance":
+        return <TrainerStudentAttendance />;
+      case "TrainerStudentsFee":
+        return <TrainerStudentsFee />;
+      case "CheckinCheckout":
+        return <CheckinCheckout />;
+
       default:
-        return (
-          <div className="text-white">
-            <h1 className="text-4xl font-extrabold mb-4">{activeMenu}</h1>
-            <p className="text-lg text-orange-100 max-w-xl">
-              This section will be connected to data later.
-            </p>
-          </div>
-        );
+        return null;
     }
   };
 
+  const sidebarItems =
+    role === "student"
+      ? studentSidebarItems
+      : role === "trainer"
+      ? trainerSidebarItems
+      : role === "trainerstudent"
+      ? trainerStudentSidebarItems
+      : [];
+
   return (
     <div className="min-h-screen flex bg-[#5a5a5a] text-white">
-      <aside className="w-72 bg-orange-900 flex flex-col">
-        <div className="flex items-center gap-3 px-4 py-4 border-b border-orange-800">
-          <div className="w-10 h-10 rounded-full bg-orange-700" />
-          <span className="text-xl font-extrabold">
-            {institute?.instituteName || "Institute"}
-          </span>
-        </div>
+      <aside className="w-72 bg-orange-900">
+        <div className="px-4 py-4 font-bold text-xl border-b">Dashboard</div>
 
-        <div className="flex-1 bg-orange-100 text-black text-lg overflow-y-auto">
+        <div className="bg-orange-100 text-black">
           {sidebarItems.map((item) => (
             <button
               key={item}
-              type="button"
-              onClick={(e) => {
-                e.preventDefault();
-                if (item === "Log Out") {
-                  handleLogout();
-                  return;
-                }
-                setActiveMenu(item);
-                if (item === "Shop") navigate("/shop");
-              }}
-              className={`w-full text-left px-4 py-3 border-b border-orange-200 ${
+              onClick={() =>
+                item === "Log Out" ? handleLogout() : setActiveMenu(item)
+              }
+              className={`w-full px-4 py-3 text-left border-b ${
                 item === activeMenu
-                  ? "bg-orange-500 text-white font-semibold"
+                  ? "bg-orange-500 text-white"
                   : "hover:bg-orange-200"
               }`}
             >
@@ -205,7 +225,7 @@ const InstituteDashboard = () => {
         </div>
       </aside>
 
-      <main className="flex-1 bg-[#4b301b] px-10 py-8 overflow-y-auto">
+      <main className="flex-1 bg-[#4b301b] p-8 overflow-y-auto">
         {renderMainContent()}
       </main>
     </div>

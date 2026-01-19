@@ -1,5 +1,8 @@
 import React, { useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
+import { signOut } from "firebase/auth";
+import { auth } from "../../firebase";
+
 import TrainersTable from "./TrainersTable";
 import StudentsAttendancePage from "./StudentsAttendancePage";
 import FeesDetailsPage from "./FeesDetailsPage";
@@ -7,9 +10,10 @@ import AddStudentDetailsPage from "./AddStudentDetailsPage";
 import PaymentsPage from "./PaymentsPage";
 import { Pagination } from "./shared";
 import Editprofile from "./Editprofile";
-
+import MyStudents from "./MyStudents";
 const sidebarItems = [
   "Home",
+  "MyStudents",
   "Students Attendance",
   "Fees Details",
   "Add Student Details",
@@ -48,9 +52,30 @@ const TrainersDashboard = () => {
     [trainers, search]
   );
 
+  /* =============================
+     🚪 LOGOUT (SAME AS INSTITUTE)
+  ============================= */
+  const handleLogout = async () => {
+    console.log("Trainer logout clicked");
+    try {
+      await signOut(auth);
+      navigate("/", { replace: true });
+    } catch (err) {
+      console.error("Logout error:", err);
+    }
+  };
+
   const handleMenuClick = (item) => {
+    console.log("Menu clicked:", item);
     setActiveMenu(item);
 
+    if (item === "Log Out") {
+      handleLogout();
+      return;
+    }
+    if (item === "MyStudents") {
+      setView("MyStudents");
+    }
     if (item === "Students Attendance") {
       setView("studentsAttendance");
     } else if (item === "Editprofile") {
@@ -65,14 +90,11 @@ const TrainersDashboard = () => {
       setView("trainersData");
     } else if (item === "Shop") {
       navigate("/shop");
-    } else if (item === "Edit Profile") {
-      navigate("/trainer-signup");
-    } else if (item === "Log Out") {
-      navigate("/logout");
     }
   };
 
   const renderMainContent = () => {
+    if (view === "MyStudents") return <MyStudents />;
     if (view === "Editprofile") return <Editprofile />;
     if (view === "studentsAttendance") return <StudentsAttendancePage />;
     if (view === "feesDetails") return <FeesDetailsPage />;
@@ -144,7 +166,11 @@ const TrainersDashboard = () => {
           {sidebarItems.map((item) => (
             <button
               key={item}
-              onClick={() => handleMenuClick(item)}
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                handleMenuClick(item);
+              }}
               className={
                 "w-full text-left px-4 py-3 border-b border-orange-200 transition-colors " +
                 (item === activeMenu

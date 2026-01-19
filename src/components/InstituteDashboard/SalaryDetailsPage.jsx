@@ -1,266 +1,167 @@
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState } from "react";
+import { auth, db } from "../../firebase";
 import {
-  TopSearchWithActionsLight,
-  FeesOrSalaryCharts,
-  ListHeader,
-  Pagination,
-} from "./shared";
-import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
-import { db } from "../../firebase";
-import { useAuth } from "../../context/AuthContext";
+  collection,
+  query,
+  where,
+  getDocs,
+  doc,
+  setDoc,
+  updateDoc,
+} from "firebase/firestore";
 
-/**
- * 🔒 Allow salary only from joining month onward
- */
-const isMonthAllowed = (joinedDate, selectedMonth) => {
-  if (!joinedDate) return false;
-  return selectedMonth >= joinedDate.slice(0, 7);
-};
+export default function TrainerSalaryPage({ instituteId }) {
+  const [month, setMonth] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [trainers, setTrainers] = useState([]);
+  const [salaries, setSalaries] = useState([]);
 
-const SalaryDetailsPage = () => {
-  const { user } = useAuth();
-
-  const [search, setSearch] = useState("");
-  const [selectedMonth, setSelectedMonth] = useState(
-    new Date().toISOString().slice(0, 7)
-  );
-  const [rows, setRows] = useState([]);
-  const [loading, setLoading] = useState(false);
-
-  /**
-   * 🔹 Fetch trainers + salary for selected month
-   */
+  // Fetch trainers
   useEffect(() => {
-    if (!user) return;
+    const fetchTrainers = async () => {
+      const q = query(
+        collection(db, "InstituteTrainers"),
+        where("instituteId", "==", instituteId)
+      );
+      const snap = await getDocs(q);
+      setTrainers(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+    };
+    fetchTrainers();
+  }, [instituteId]);
 
-    const fetchData = async () => {
-      setLoading(true);
+  // Fetch salaries
+  useEffect(() => {
+    if (!month || !instituteId) return;
 
-      const instituteSnap = await getDoc(doc(db, "institutes", user.uid));
-      if (!instituteSnap.exists()) {
-        setRows([]);
-        setLoading(false);
-        return;
-      }
+    const fetchSalaries = async () => {
+      const q = query(
+        collection(db, "institutes", instituteId, "trainerSalaries"),
+        where("month", "==", month)
+      );
 
-      const trainerIds = instituteSnap.data().trainers || [];
-      const result = [];
-
-      for (const trainerUid of trainerIds) {
-        const trainerSnap = await getDoc(
-          doc(db, "InstituteTrainers", trainerUid)
-        );
-        if (!trainerSnap.exists()) continue;
-
-        const trainer = trainerSnap.data();
-
-        // 🔒 Joining month validation
-        if (!isMonthAllowed(trainer.joinedDate, selectedMonth)) continue;
-
-        const totalSalary = Number(trainer.monthlySalary || 0);
-
-        const salaryRef = doc(
-          db,
-          "InstituteSalaryDetails",
-          `${user.uid}_${trainerUid}_${selectedMonth}`
-        );
-        const salarySnap = await getDoc(salaryRef);
-
-        const paid = salarySnap.exists()
-          ? Number(salarySnap.data().paidAmount || 0)
-          : 0;
-
-        result.push({
-          id: trainerUid,
-          name: `${trainer.firstName} ${trainer.lastName}`,
-          total: totalSalary,
-          paid,
-          pending: Math.max(totalSalary - paid, 0),
-        });
-      }
-
-      setRows(result);
-      setLoading(false);
+      const snap = await getDocs(q);
+      setSalaries(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
     };
 
-    fetchData();
-  }, [user, selectedMonth]);
+    fetchSalaries();
+  }, [month, instituteId]);
 
-  /**
-   * 🔹 Edit paid amount
-   */
-  const handlePaidChange = (id, value) => {
-    const paid = Number(value || 0);
+  const getSalaryDoc = (trainerId) =>
+    salaries.find((s) => s.trainerId === trainerId);
 
-    setRows((prev) =>
-      prev.map((r) =>
-        r.id === id
-          ? {
-              ...r,
-              paid,
-              pending: Math.max(r.total - paid, 0),
-            }
-          : r
-      )
+  // Generate Salary
+  const generateSalary = async (trainer) => {
+    const attendanceQ = query(
+      collection(db, "institutes", instituteId, "trainerAttendance"),
+      where("trainerId", "==", trainer.trainerUid),
+      where("month", "==", month)
     );
-  };
 
-  /**
-   * 🔹 Save salary (month-wise)
-   */
-  const handleSave = async () => {
-    for (const r of rows) {
-      await setDoc(
-        doc(
-          db,
-          "InstituteSalaryDetails",
-          `${user.uid}_${r.id}_${selectedMonth}`
-        ),
-        {
-          instituteId: user.uid,
-          trainerUid: r.id,
-          trainerName: r.name,
-          month: selectedMonth,
-          totalSalary: r.total,
-          paidAmount: r.paid,
-          pendingAmount: r.pending,
-          status: r.pending === 0 ? "SETTLED" : "PENDING",
-          updatedAt: serverTimestamp(),
-        }
-      );
-    }
+    const attendanceSnap = await getDocs(attendanceQ);
 
-    alert("Salary details saved successfully");
-  };
+    const presentDays = attendanceSnap.docs.filter(
+      (d) => d.data().status === "present"
+    ).length;
 
-  /**
-   * 🔹 Search filter
-   */
-  const filteredRows = useMemo(() => {
-    return rows.filter((r) =>
-      r.name.toLowerCase().includes(search.toLowerCase())
-    );
-  }, [rows, search]);
+    const totalDays = new Date(
+      month.split("-")[0],
+      month.split("-")[1],
+      0
+    ).getDate();
+    const perDay = trainer.monthlySalary / totalDays;
+    const payable = Math.round(perDay * presentDays);
 
-  /**
-   * ✅ GRAPH + SIDE VALUES (MONTH-WISE & ACCURATE)
-   */
-  const totals = useMemo(() => {
-    let total = 0;
-    let paid = 0;
-    let pending = 0;
-    let settled = 0;
-    let pendingCount = 0;
+    const docId = `${trainer.trainerUid}_${month}`;
 
-    rows.forEach((r) => {
-      total += r.total;
-      paid += r.paid;
-      pending += r.pending;
-
-      r.pending === 0 ? settled++ : pendingCount++;
+    await setDoc(doc(db, "institutes", instituteId, "trainerSalaries", docId), {
+      trainerId: trainer.trainerUid,
+      trainerName: trainer.firstName,
+      month,
+      totalDays,
+      presentDays,
+      absentDays: totalDays - presentDays,
+      monthlySalary: Number(trainer.monthlySalary),
+      perDaySalary: perDay,
+      payableSalary: payable,
+      status: "generated",
+      generatedAt: new Date(),
     });
 
-    return {
-      total,
-      paid,
-      pending,
-      count: rows.length,
-      settled,
-      pendingCount,
-    };
-  }, [rows]);
+    alert("Salary Generated");
+  };
+
+  // Mark Paid
+  const markPaid = async (salaryId) => {
+    await updateDoc(
+      doc(db, "institutes", instituteId, "trainerSalaries", salaryId),
+      {
+        status: "paid",
+        paidAt: new Date(),
+        paymentMode: "Cash",
+      }
+    );
+  };
 
   return (
-    <div className="h-full bg-white text-black p-6 rounded-lg">
-      <TopSearchWithActionsLight search={search} setSearch={setSearch} />
+    <div className="p-4">
+      <h2 className="text-xl font-bold mb-4">Trainer Salary Management</h2>
 
-      {/* 🔥 MONTH-WISE BAR GRAPH + SIDE VALUES */}
-      <FeesOrSalaryCharts
-        totalLabel="Total Salary to Pay"
-        paidLabel="Amount Paid"
-        pendingLabel="Pending Amount"
-        peopleLabel="Trainer Overview"
-        totalValue={totals.total}
-        paidValue={totals.paid}
-        pendingValue={totals.pending}
-        peopleValue={totals.count}
-        settledCount={totals.settled}
-        pendingCount={totals.pendingCount}
-        selectedMonth={selectedMonth}
-      />
-
-      <div className="flex items-center justify-between mb-2">
-        <ListHeader title="Monthly Salary Details" />
-        <input
-          type="month"
-          value={selectedMonth}
-          onChange={(e) => setSelectedMonth(e.target.value)}
-          className="border px-3 py-1 rounded-md"
-        />
+      {/* Filters */}
+      <div className="flex gap-4 mb-4">
+        <input type="month" onChange={(e) => setMonth(e.target.value)} />
+        <select onChange={(e) => setStatusFilter(e.target.value)}>
+          <option value="all">All</option>
+          <option value="pending">Pending</option>
+          <option value="generated">Generated</option>
+          <option value="paid">Paid</option>
+        </select>
       </div>
 
-      <table className="w-full border text-sm mt-4">
+      {/* Table */}
+      <table className="w-full border">
         <thead>
-          <tr className="bg-gray-100">
-            <th className="p-2">Trainer</th>
-            <th>Total</th>
-            <th>Paid</th>
-            <th>Pending</th>
+          <tr className="bg-gray-200">
+            <th>Trainer</th>
+            <th>Present</th>
+            <th>Absent</th>
+            <th>Payable</th>
+            <th>Status</th>
+            <th>Action</th>
           </tr>
         </thead>
+
         <tbody>
-          {loading && (
-            <tr>
-              <td colSpan="4" className="text-center py-6">
-                Loading...
-              </td>
-            </tr>
-          )}
+          {trainers.map((trainer) => {
+            const salary = getSalaryDoc(trainer.trainerUid);
+            const status = salary?.status || "pending";
 
-          {!loading && filteredRows.length === 0 && (
-            <tr>
-              <td colSpan="4" className="text-center py-6 text-gray-500">
-                No trainers available for this month
-              </td>
-            </tr>
-          )}
+            if (statusFilter !== "all" && status !== statusFilter) return null;
 
-          {filteredRows.map((r) => (
-            <tr key={r.id} className="border-t">
-              <td className="p-2">{r.name}</td>
-              <td>₹ {r.total}</td>
-              <td>
-                <input
-                  type="number"
-                  min="0"
-                  max={r.total}
-                  value={r.paid}
-                  onChange={(e) => handlePaidChange(r.id, e.target.value)}
-                  className="border px-2 py-1 w-24"
-                />
-              </td>
-              <td
-                className={r.pending === 0 ? "text-green-600" : "text-red-600"}
-              >
-                {r.pending === 0 ? "SETTLED" : `₹ ${r.pending}`}
-              </td>
-            </tr>
-          ))}
+            return (
+              <tr key={trainer.trainerUid}>
+                <td>{trainer.firstName}</td>
+                <td>{salary?.presentDays || "-"}</td>
+                <td>{salary?.absentDays || "-"}</td>
+                <td>₹{salary?.payableSalary || "-"}</td>
+                <td>{status}</td>
+                <td>
+                  {status === "pending" && (
+                    <button onClick={() => generateSalary(trainer)}>
+                      Generate
+                    </button>
+                  )}
+                  {status === "generated" && (
+                    <button onClick={() => markPaid(salary.id)}>
+                      Mark Paid
+                    </button>
+                  )}
+                  {status === "paid" && "✔"}
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
-
-      <div className="flex justify-end mt-4">
-        <button
-          onClick={handleSave}
-          className="bg-orange-500 text-white px-6 py-2 rounded-md font-bold"
-        >
-          Save
-        </button>
-      </div>
-
-      <Pagination />
     </div>
   );
-};
-
-export default SalaryDetailsPage;
+}
